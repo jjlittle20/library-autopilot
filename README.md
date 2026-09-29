@@ -13,5 +13,3 @@ This plugin works alongside the built-in **Kourend Library** plugin, which you c
 ## Staircase landings
 
 The server decides where a staircase or railing puts you, so that can't be read from the game data. Until you've used a transport once, its landing tile is estimated from the floor it leads to. After each use, the plugin records where you actually landed and uses that from then on.
-
-```
