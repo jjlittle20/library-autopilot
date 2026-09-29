@@ -14,9 +14,6 @@ This plugin works alongside the built-in **Kourend Library** plugin, which you c
 
 The server decides where a staircase or railing puts you, so that can't be read from the game data. Until you've used a transport once, its landing tile is estimated from the floor it leads to. After each use, the plugin records where you actually landed (saved in the `librarypilot.learnedTransports` config) and uses that from then on.
 
-## Running
-
-This needs JDK 11 or newer. The only Java installed on this PC is Java 8.
 
 ```
 ./gradlew run
