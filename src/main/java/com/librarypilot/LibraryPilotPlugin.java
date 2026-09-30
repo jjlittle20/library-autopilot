@@ -64,6 +64,10 @@ public class LibraryPilotPlugin extends Plugin
 	 * How many of the nearest spare-book shelves to check the full detour cost for, each tick.
 	 */
 	private static final int MAX_DETOUR_CANDIDATES = 8;
+	/**
+	 * How many times the normal max detour the book that was just handed in may cost to pick up again.
+	 */
+	private static final int REGRAB_DETOUR_MULTIPLIER = 3;
 
 	enum Task
 	{
@@ -146,7 +150,14 @@ public class LibraryPilotPlugin extends Plugin
 	private volatile Customer taskCustomer;
 
 	/**
-	 * A spare book the path is picking up on the way, when collecting spare books is on.
+	 * The book last handed in, until it is picked up again or the shelves reshuffle. Efficient mode goes further out of
+	 * its way to get another copy.
+	 */
+	@Getter(AccessLevel.PACKAGE)
+	private volatile Book regrabBook;
+
+	/**
+	 * A spare book the path is picking up on the way, in efficient mode.
 	 */
 	@Getter(AccessLevel.PACKAGE)
 	private volatile Book detourBook;
@@ -173,6 +184,7 @@ public class LibraryPilotPlugin extends Plugin
 		overlayManager.remove(infoOverlay);
 		task = null;
 		library.reset();
+		regrabBook = null;
 		library.setCustomer(-1, null);
 		lastBookcaseClick = null;
 		lastBookcaseAnimatedOn = null;
@@ -204,6 +216,7 @@ public class LibraryPilotPlugin extends Plugin
 		{
 			// Book locations and requests are per world
 			library.reset();
+			regrabBook = null;
 			library.setCustomer(-1, null);
 			lastServedCustomer = -1;
 		}
@@ -267,6 +280,7 @@ public class LibraryPilotPlugin extends Plugin
 		if (event.getMessage().endsWith("You hear the shifting of books due to a mysterious force...or are you just hearing things?"))
 		{
 			library.reset();
+			regrabBook = null;
 		}
 	}
 
@@ -368,7 +382,7 @@ public class LibraryPilotPlugin extends Plugin
 		}
 
 		int mainDist = search.distance(mainTargets);
-		if (config.collectSpareBooks() && mainDist != PathFinder.UNREACHABLE && detourForSpareBook(search, mainTargets, mainDist, wanted))
+		if (config.efficientMode() && mainDist != PathFinder.UNREACHABLE && detourForSpareBook(search, mainTargets, mainDist, wanted))
 		{
 			return;
 		}
@@ -383,17 +397,21 @@ public class LibraryPilotPlugin extends Plugin
 	}
 
 	/**
-	 * Heads for a shelf with a book the player doesn't have yet, if picking it up only adds a few tiles to the trip.
+	 * Efficient mode: heads for a shelf with a book the player doesn't have yet, if picking it up only adds a few tiles
+	 * to the trip. The book that was just handed in is allowed a bigger detour, since the same book is often requested
+	 * again before the shelves reshuffle.
 	 *
 	 * @return true if a detour was chosen and published
 	 */
 	private boolean detourForSpareBook(PathFinder.Search search, List<WorldPoint> mainTargets, int mainDist, Book wanted)
 	{
 		int maxDetour = config.maxDetour() * PathFinder.TILE;
+		int maxRegrabDetour = maxDetour * REGRAB_DETOUR_MULTIPLIER;
 
 		// Cheap filter first: a detour costs at least the extra distance to reach the shelf
 		List<Bookcase> candidates = new ArrayList<>();
 		Map<Bookcase, Integer> toShelf = new HashMap<>();
+		Bookcase regrabShelf = null;
 		for (Bookcase bookcase : library.getBookcases())
 		{
 			Book book = knownBook(bookcase);
@@ -401,18 +419,28 @@ public class LibraryPilotPlugin extends Plugin
 			{
 				continue;
 			}
+			int allowed = book == regrabBook ? maxRegrabDetour : maxDetour;
 			int d = search.distance(standTiles(bookcase.getLocation()));
-			if (d != PathFinder.UNREACHABLE && d - mainDist <= maxDetour)
+			if (d != PathFinder.UNREACHABLE && d - mainDist <= allowed)
 			{
 				candidates.add(bookcase);
 				toShelf.put(bookcase, d);
+				if (book == regrabBook)
+				{
+					regrabShelf = bookcase;
+				}
 			}
 		}
 		candidates.sort((a, b) -> Integer.compare(toShelf.get(a), toShelf.get(b)));
+		List<Bookcase> checked = new ArrayList<>(candidates.subList(0, Math.min(candidates.size(), MAX_DETOUR_CANDIDATES)));
+		if (regrabShelf != null && !checked.contains(regrabShelf))
+		{
+			checked.add(regrabShelf);
+		}
 
 		Bookcase best = null;
 		int bestDetour = Integer.MAX_VALUE;
-		for (Bookcase bookcase : candidates.subList(0, Math.min(candidates.size(), MAX_DETOUR_CANDIDATES)))
+		for (Bookcase bookcase : checked)
 		{
 			WorldPoint standing = search.closestPoint(standTiles(bookcase.getLocation()));
 			int onward = PathFinder.search(grid, standing, mainTargets, transports).distance(mainTargets);
@@ -421,7 +449,8 @@ public class LibraryPilotPlugin extends Plugin
 				continue;
 			}
 			int detour = toShelf.get(bookcase) + onward - mainDist;
-			if (detour <= maxDetour && detour < bestDetour)
+			int allowed = knownBook(bookcase) == regrabBook ? maxRegrabDetour : maxDetour;
+			if (detour <= allowed && detour < bestDetour)
 			{
 				best = bookcase;
 				bestDetour = detour;
@@ -607,6 +636,10 @@ public class LibraryPilotPlugin extends Plugin
 			{
 				library.mark(lastBookcaseAnimatedOn, book);
 				lastBookcaseAnimatedOn = null;
+				if (book == regrabBook)
+				{
+					regrabBook = null;
+				}
 			}
 		}
 	}
@@ -642,6 +675,7 @@ public class LibraryPilotPlugin extends Plugin
 			if (library.getCustomerBook() != null)
 			{
 				lastServedCustomer = npcHead.getModelId();
+				regrabBook = library.getCustomerBook();
 			}
 			library.setCustomer(-1, null);
 		}

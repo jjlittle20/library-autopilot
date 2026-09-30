@@ -62,7 +62,7 @@ class LibraryPilotInfoOverlay extends OverlayPanel
 		if (detour != null)
 		{
 			panelComponent.getChildren().add(LineComponent.builder()
-				.left("Grabbing")
+				.left(detour == plugin.getRegrabBook() ? "Re-grabbing" : "Grabbing")
 				.right(detour.getShortName())
 				.rightColor(Color.YELLOW)
 				.build());

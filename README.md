@@ -11,7 +11,7 @@ Paths are worked out from the game's own collision data and cover all three floo
 
 An info box shows the current step (*Get task*, *Find book*, *Search shelves* or *Return book*), with the book and customer.
 
-**Collect spare books** (off by default): picks up books you don't have yet when they're close to the route, so later requests are quicker. A book is only picked up if it adds at most *Max detour* tiles (default 6) to the trip; otherwise the line goes straight to the requested book and back.
+**Efficient mode** (off by default): picks up books you don't have yet when they're close to the route, so later requests are quicker. A book is only picked up if it adds at most *Max detour* tiles (default 6) to the trip. After a hand-in, it also goes back for another copy of that book (allowed three times the detour), since the same book is often requested again before the shelves reshuffle. With it off, the line goes straight to the requested book and back.
 
 This plugin works alongside the built-in **Kourend Library** plugin, which you can keep for its book panel. Turn off that plugin's *Show target book hint arrow* option if you don't want its arrow as well.
 

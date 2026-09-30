@@ -94,13 +94,14 @@ public interface LibraryPilotConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "collectSpareBooks",
-		name = "Collect spare books",
-		description = "Pick up books you don't have yet when they're close to the route, so later requests are quicker."
-			+ " Off: the line goes straight to the requested book and back",
+		keyName = "efficientMode",
+		name = "Efficient mode",
+		description = "Pick up books you don't have yet when they're close to the route, and go back for another copy of"
+			+ " the book you just handed in, since it's often requested again. Off: the line goes straight to the"
+			+ " requested book and back",
 		position = 7
 	)
-	default boolean collectSpareBooks()
+	default boolean efficientMode()
 	{
 		return false;
 	}
@@ -109,7 +110,8 @@ public interface LibraryPilotConfig extends Config
 	@ConfigItem(
 		keyName = "maxDetour",
 		name = "Max detour (tiles)",
-		description = "How many extra tiles a spare book may add to the trip before it's skipped",
+		description = "Efficient mode: how many extra tiles a spare book may add to the trip before it's skipped."
+			+ " The book you just handed in may add three times this",
 		position = 8
 	)
 	default int maxDetour()
