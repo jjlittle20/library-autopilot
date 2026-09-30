@@ -21,10 +21,12 @@ import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.MenuAction;
 import net.runelite.api.NPC;
+import net.runelite.api.ObjectComposition;
 import net.runelite.api.Player;
 import net.runelite.api.Tile;
 import net.runelite.api.TileObject;
 import net.runelite.api.WorldView;
+import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.AnimationChanged;
 import net.runelite.api.events.ChatMessage;
@@ -68,6 +70,7 @@ public class LibraryPilotPlugin extends Plugin
 	 * How many times the normal max detour the book that was just handed in may cost to pick up again.
 	 */
 	private static final int REGRAB_DETOUR_MULTIPLIER = 3;
+	private static final String BOOKSHELF = "Bookshelf";
 
 	enum Task
 	{
@@ -136,6 +139,12 @@ public class LibraryPilotPlugin extends Plugin
 	 */
 	@Getter(AccessLevel.PACKAGE)
 	private volatile NPC targetNpc;
+
+	/**
+	 * The bookshelf the path leads to, when it is loaded.
+	 */
+	@Getter(AccessLevel.PACKAGE)
+	private volatile TileObject targetObject;
 
 	/**
 	 * What the player should be doing, for the info box. Null outside the library.
@@ -535,6 +544,37 @@ public class LibraryPilotPlugin extends Plugin
 		path = steps;
 		targetTile = steps.isEmpty() ? null : tile;
 		targetNpc = steps.isEmpty() ? null : npc;
+		targetObject = steps.isEmpty() || npc != null || tile == null ? null : bookshelfAt(tile);
+	}
+
+	/**
+	 * The bookshelf object on a tile, so the overlay can outline the shelf itself rather than its tile.
+	 */
+	private GameObject bookshelfAt(WorldPoint wp)
+	{
+		WorldView wv = client.getTopLevelWorldView();
+		LocalPoint lp = LocalPoint.fromWorld(wv, wp);
+		if (lp == null)
+		{
+			return null;
+		}
+		Tile tile = wv.getScene().getTiles()[wp.getPlane()][lp.getSceneX()][lp.getSceneY()];
+		if (tile == null)
+		{
+			return null;
+		}
+		for (GameObject go : tile.getGameObjects())
+		{
+			if (go != null)
+			{
+				ObjectComposition comp = TransportScanner.composition(client, go.getId());
+				if (comp != null && BOOKSHELF.equals(comp.getName()))
+				{
+					return go;
+				}
+			}
+		}
+		return null;
 	}
 
 	private void clearPath()
@@ -542,6 +582,7 @@ public class LibraryPilotPlugin extends Plugin
 		path = Collections.emptyList();
 		targetTile = null;
 		targetNpc = null;
+		targetObject = null;
 		detourBook = null;
 	}
 

@@ -104,6 +104,12 @@ class LibraryPilotOverlay extends Overlay
 				highlight = npc.getConvexHull();
 				end = toCanvas(wv, npc.getLocalLocation());
 			}
+			else if (plugin.getTargetObject() != null && plugin.getTargetObject().getPlane() == plane)
+			{
+				TileObject shelf = plugin.getTargetObject();
+				highlight = shelf.getClickbox();
+				end = toCanvas(wv, shelf.getLocalLocation());
+			}
 			else if (tile != null && tile.getPlane() == plane)
 			{
 				LocalPoint lp = LocalPoint.fromWorld(wv, tile);
