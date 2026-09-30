@@ -15,11 +15,12 @@ import net.runelite.api.gameval.NpcID;
 @Getter
 enum Customer
 {
-	VILLIA(NpcID.ARCEUUS_LIBRARY_CUSTOMER_2, new WorldPoint(1627, 3815, 0)),
-	PROFESSOR_GRACKLEBONE(NpcID.ARCEUUS_LIBRARY_CUSTOMER_3, new WorldPoint(1627, 3801, 0)),
-	SAM(NpcID.ARCEUUS_LIBRARY_CUSTOMER_4, new WorldPoint(1640, 3802, 0));
+	VILLIA(NpcID.ARCEUUS_LIBRARY_CUSTOMER_2, "Villia", new WorldPoint(1627, 3815, 0)),
+	PROFESSOR_GRACKLEBONE(NpcID.ARCEUUS_LIBRARY_CUSTOMER_3, "Professor Gracklebone", new WorldPoint(1627, 3801, 0)),
+	SAM(NpcID.ARCEUUS_LIBRARY_CUSTOMER_4, "Sam", new WorldPoint(1640, 3802, 0));
 
 	private final int npcId;
+	private final String displayName;
 	private final WorldPoint home;
 
 	static Customer byId(int npcId)

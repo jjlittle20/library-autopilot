@@ -81,4 +81,39 @@ public interface LibraryPilotConfig extends Config
 	{
 		return false;
 	}
+
+	@ConfigItem(
+		keyName = "showInfoBox",
+		name = "Show info box",
+		description = "Show what to do next: get a task, find a book or return it",
+		position = 6
+	)
+	default boolean showInfoBox()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "collectSpareBooks",
+		name = "Collect spare books",
+		description = "Pick up books you don't have yet when they're close to the route, so later requests are quicker."
+			+ " Off: the line goes straight to the requested book and back",
+		position = 7
+	)
+	default boolean collectSpareBooks()
+	{
+		return false;
+	}
+
+	@Range(min = 1, max = 20)
+	@ConfigItem(
+		keyName = "maxDetour",
+		name = "Max detour (tiles)",
+		description = "How many extra tiles a spare book may add to the trip before it's skipped",
+		position = 8
+	)
+	default int maxDetour()
+	{
+		return 6;
+	}
 }

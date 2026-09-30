@@ -60,6 +60,26 @@ public class LibraryPilotPlugin extends Plugin
 	 * How long after clicking a staircase or railing a floor change still counts as having used it.
 	 */
 	private static final int TRANSPORT_LEARN_TICKS = 15;
+	/**
+	 * How many of the nearest spare-book shelves to check the full detour cost for, each tick.
+	 */
+	private static final int MAX_DETOUR_CANDIDATES = 8;
+
+	enum Task
+	{
+		GET_TASK("Get task"),
+		FIND_BOOK("Find book"),
+		SEARCH_SHELVES("Search shelves"),
+		RETURN_BOOK("Return book");
+
+		@Getter
+		private final String label;
+
+		Task(String label)
+		{
+			this.label = label;
+		}
+	}
 
 	@Inject
 	private Client client;
@@ -75,6 +95,9 @@ public class LibraryPilotPlugin extends Plugin
 
 	@Inject
 	private LibraryPilotOverlay overlay;
+
+	@Inject
+	private LibraryPilotInfoOverlay infoOverlay;
 
 	private final Library library = new Library();
 
@@ -110,6 +133,24 @@ public class LibraryPilotPlugin extends Plugin
 	@Getter(AccessLevel.PACKAGE)
 	private volatile NPC targetNpc;
 
+	/**
+	 * What the player should be doing, for the info box. Null outside the library.
+	 */
+	@Getter(AccessLevel.PACKAGE)
+	private volatile Task task;
+
+	@Getter(AccessLevel.PACKAGE)
+	private volatile Book taskBook;
+
+	@Getter(AccessLevel.PACKAGE)
+	private volatile Customer taskCustomer;
+
+	/**
+	 * A spare book the path is picking up on the way, when collecting spare books is on.
+	 */
+	@Getter(AccessLevel.PACKAGE)
+	private volatile Book detourBook;
+
 	@Provides
 	LibraryPilotConfig provideConfig(ConfigManager configManager)
 	{
@@ -121,6 +162,7 @@ public class LibraryPilotPlugin extends Plugin
 	{
 		loadLearnedTransports();
 		overlayManager.add(overlay);
+		overlayManager.add(infoOverlay);
 		sceneDirty = true;
 	}
 
@@ -128,6 +170,8 @@ public class LibraryPilotPlugin extends Plugin
 	protected void shutDown()
 	{
 		overlayManager.remove(overlay);
+		overlayManager.remove(infoOverlay);
+		task = null;
 		library.reset();
 		library.setCustomer(-1, null);
 		lastBookcaseClick = null;
@@ -250,6 +294,7 @@ public class LibraryPilotPlugin extends Plugin
 		if (location.getRegionID() != REGION)
 		{
 			clearPath();
+			task = null;
 			return;
 		}
 
@@ -269,35 +314,162 @@ public class LibraryPilotPlugin extends Plugin
 
 	private void updatePath(WorldPoint location)
 	{
+		PathFinder.Search search = PathFinder.search(grid, location, transports);
+		List<WorldPoint> mainTargets;
+		WorldPoint mainTile = null;
+		NPC mainNpc = null;
+		List<WorldPoint> shelves = null;
+
 		Book wanted = library.getCustomerBook();
 		if (wanted != null && playerBooks.contains(wanted))
 		{
 			// Holding the requested book, take it to whoever asked for it
 			Customer customer = Customer.byId(library.getCustomerId());
+			setTask(Task.RETURN_BOOK, wanted, customer);
 			if (customer == null)
 			{
 				clearPath();
 				return;
 			}
-			goToCustomer(location, Collections.singletonList(customer));
+			mainNpc = findNpc(customer.getNpcId());
+			mainTile = mainNpc != null ? mainNpc.getWorldLocation() : customer.getHome();
+			mainTargets = standTiles(mainTile);
 		}
 		else if (wanted != null)
 		{
-			List<WorldPoint> shelves = shelvesFor(wanted);
-			List<WorldPoint> targets = new ArrayList<>();
+			setTask(isLocationKnown(wanted) ? Task.FIND_BOOK : Task.SEARCH_SHELVES, wanted, null);
+			shelves = shelvesFor(wanted);
+			mainTargets = new ArrayList<>();
 			for (WorldPoint shelf : shelves)
 			{
-				targets.addAll(standTiles(shelf));
+				mainTargets.addAll(standTiles(shelf));
 			}
-			List<PathFinder.Step> steps = PathFinder.find(grid, location, targets, transports);
-			WorldPoint bookcase = steps.isEmpty() ? null : closestShelf(shelves, steps.get(steps.size() - 1).getPoint());
-			publish(steps, bookcase, null);
 		}
 		else
 		{
-			// No request yet, go to the nearest customer that will give one
-			goToCustomer(location, taskGivers());
+			// No request yet, go to the closest customer that will give one
+			Customer best = null;
+			int bestDist = PathFinder.UNREACHABLE;
+			for (Customer customer : taskGivers())
+			{
+				NPC npc = findNpc(customer.getNpcId());
+				WorldPoint tile = npc != null ? npc.getWorldLocation() : customer.getHome();
+				int d = search.distance(standTiles(tile));
+				if (best == null || d < bestDist)
+				{
+					best = customer;
+					bestDist = d;
+					mainNpc = npc;
+					mainTile = tile;
+				}
+			}
+			setTask(Task.GET_TASK, null, best);
+			mainTargets = mainTile == null ? Collections.emptyList() : standTiles(mainTile);
 		}
+
+		int mainDist = search.distance(mainTargets);
+		if (config.collectSpareBooks() && mainDist != PathFinder.UNREACHABLE && detourForSpareBook(search, mainTargets, mainDist, wanted))
+		{
+			return;
+		}
+
+		detourBook = null;
+		List<PathFinder.Step> steps = search.pathTo(mainTargets);
+		if (shelves != null && !steps.isEmpty())
+		{
+			mainTile = closestShelf(shelves, steps.get(steps.size() - 1).getPoint());
+		}
+		publish(steps, mainTile, mainNpc);
+	}
+
+	/**
+	 * Heads for a shelf with a book the player doesn't have yet, if picking it up only adds a few tiles to the trip.
+	 *
+	 * @return true if a detour was chosen and published
+	 */
+	private boolean detourForSpareBook(PathFinder.Search search, List<WorldPoint> mainTargets, int mainDist, Book wanted)
+	{
+		int maxDetour = config.maxDetour() * PathFinder.TILE;
+
+		// Cheap filter first: a detour costs at least the extra distance to reach the shelf
+		List<Bookcase> candidates = new ArrayList<>();
+		Map<Bookcase, Integer> toShelf = new HashMap<>();
+		for (Bookcase bookcase : library.getBookcases())
+		{
+			Book book = knownBook(bookcase);
+			if (book == null || book == wanted || book == Book.VARLAMORE_ENVOY || playerBooks.contains(book))
+			{
+				continue;
+			}
+			int d = search.distance(standTiles(bookcase.getLocation()));
+			if (d != PathFinder.UNREACHABLE && d - mainDist <= maxDetour)
+			{
+				candidates.add(bookcase);
+				toShelf.put(bookcase, d);
+			}
+		}
+		candidates.sort((a, b) -> Integer.compare(toShelf.get(a), toShelf.get(b)));
+
+		Bookcase best = null;
+		int bestDetour = Integer.MAX_VALUE;
+		for (Bookcase bookcase : candidates.subList(0, Math.min(candidates.size(), MAX_DETOUR_CANDIDATES)))
+		{
+			WorldPoint standing = search.closestPoint(standTiles(bookcase.getLocation()));
+			int onward = PathFinder.search(grid, standing, mainTargets, transports).distance(mainTargets);
+			if (onward == PathFinder.UNREACHABLE)
+			{
+				continue;
+			}
+			int detour = toShelf.get(bookcase) + onward - mainDist;
+			if (detour <= maxDetour && detour < bestDetour)
+			{
+				best = bookcase;
+				bestDetour = detour;
+			}
+		}
+
+		if (best == null)
+		{
+			return false;
+		}
+		detourBook = knownBook(best);
+		publish(search.pathTo(standTiles(best.getLocation())), best.getLocation(), null);
+		return true;
+	}
+
+	/**
+	 * The book on a shelf, if it is known for certain.
+	 */
+	private Book knownBook(Bookcase bookcase)
+	{
+		if (bookcase.isBookSet())
+		{
+			return bookcase.getBook();
+		}
+		if (library.getState() == SolvedState.COMPLETE && bookcase.getPossibleBooks().size() == 1)
+		{
+			return bookcase.getPossibleBooks().iterator().next();
+		}
+		return null;
+	}
+
+	private boolean isLocationKnown(Book book)
+	{
+		for (Bookcase bookcase : library.getBookcases())
+		{
+			if (knownBook(bookcase) == book)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private void setTask(Task task, Book book, Customer customer)
+	{
+		this.task = task;
+		this.taskBook = book;
+		this.taskCustomer = customer;
 	}
 
 	/**
@@ -315,29 +487,6 @@ public class LibraryPilotPlugin extends Plugin
 		}
 		givers.removeIf(c -> c.getNpcId() == lastServedCustomer);
 		return givers;
-	}
-
-	/**
-	 * Path to whichever of the customers is closest, walking to them if they're loaded or to their home spot if not.
-	 */
-	private void goToCustomer(WorldPoint location, List<Customer> customers)
-	{
-		List<PathFinder.Step> best = Collections.emptyList();
-		NPC bestNpc = null;
-		WorldPoint bestTile = null;
-		for (Customer customer : customers)
-		{
-			NPC npc = findNpc(customer.getNpcId());
-			WorldPoint tile = npc != null ? npc.getWorldLocation() : customer.getHome();
-			List<PathFinder.Step> steps = PathFinder.find(grid, location, standTiles(tile), transports);
-			if (!steps.isEmpty() && (best.isEmpty() || steps.size() < best.size()))
-			{
-				best = steps;
-				bestNpc = npc;
-				bestTile = tile;
-			}
-		}
-		publish(best, bestTile, bestNpc);
 	}
 
 	private NPC findNpc(int npcId)
@@ -364,6 +513,7 @@ public class LibraryPilotPlugin extends Plugin
 		path = Collections.emptyList();
 		targetTile = null;
 		targetNpc = null;
+		detourBook = null;
 	}
 
 	/**
