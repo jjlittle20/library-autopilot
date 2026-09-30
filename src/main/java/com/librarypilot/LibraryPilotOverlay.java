@@ -98,15 +98,15 @@ class LibraryPilotOverlay extends Overlay
 		else
 		{
 			NPC npc = plugin.getTargetNpc();
-			WorldPoint bookcase = plugin.getTargetBookcase();
+			WorldPoint tile = plugin.getTargetTile();
 			if (npc != null && npc.getWorldLocation().getPlane() == plane)
 			{
 				highlight = npc.getConvexHull();
 				end = toCanvas(wv, npc.getLocalLocation());
 			}
-			else if (bookcase != null && bookcase.getPlane() == plane)
+			else if (tile != null && tile.getPlane() == plane)
 			{
-				LocalPoint lp = LocalPoint.fromWorld(wv, bookcase);
+				LocalPoint lp = LocalPoint.fromWorld(wv, tile);
 				if (lp != null)
 				{
 					highlight = Perspective.getCanvasTilePoly(client, lp);

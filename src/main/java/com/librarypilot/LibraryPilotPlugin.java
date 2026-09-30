@@ -36,7 +36,6 @@ import net.runelite.api.events.StatChanged;
 import net.runelite.api.gameval.AnimationID;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
-import net.runelite.api.gameval.NpcID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.Skill;
 import net.runelite.client.config.ConfigManager;
@@ -100,11 +99,14 @@ public class LibraryPilotPlugin extends Plugin
 	private volatile List<PathFinder.Step> path = Collections.emptyList();
 
 	/**
-	 * What the path leads to: a bookshelf location or a customer NPC.
+	 * What the path leads to: a bookshelf, or a customer's home spot when the customer isn't loaded.
 	 */
 	@Getter(AccessLevel.PACKAGE)
-	private volatile WorldPoint targetBookcase;
+	private volatile WorldPoint targetTile;
 
+	/**
+	 * The customer the path leads to, when they are loaded.
+	 */
 	@Getter(AccessLevel.PACKAGE)
 	private volatile NPC targetNpc;
 
@@ -267,57 +269,100 @@ public class LibraryPilotPlugin extends Plugin
 
 	private void updatePath(WorldPoint location)
 	{
-		List<WorldPoint> targets = new ArrayList<>();
-		WorldPoint bookcase = null;
-		NPC npc = null;
-
 		Book wanted = library.getCustomerBook();
 		if (wanted != null && playerBooks.contains(wanted))
 		{
 			// Holding the requested book, take it to whoever asked for it
-			npc = nearest(customers(library.getCustomerId(), true), location);
+			Customer customer = Customer.byId(library.getCustomerId());
+			if (customer == null)
+			{
+				clearPath();
+				return;
+			}
+			goToCustomer(location, Collections.singletonList(customer));
 		}
 		else if (wanted != null)
 		{
 			List<WorldPoint> shelves = shelvesFor(wanted);
+			List<WorldPoint> targets = new ArrayList<>();
 			for (WorldPoint shelf : shelves)
 			{
 				targets.addAll(standTiles(shelf));
 			}
 			List<PathFinder.Step> steps = PathFinder.find(grid, location, targets, transports);
-			if (!steps.isEmpty())
-			{
-				bookcase = closestShelf(shelves, steps.get(steps.size() - 1).getPoint());
-			}
+			WorldPoint bookcase = steps.isEmpty() ? null : closestShelf(shelves, steps.get(steps.size() - 1).getPoint());
 			publish(steps, bookcase, null);
-			return;
 		}
 		else
 		{
 			// No request yet, go to the nearest customer that will give one
-			npc = nearest(customers(lastServedCustomer, false), location);
+			goToCustomer(location, taskGivers());
 		}
-
-		if (npc == null)
-		{
-			clearPath();
-			return;
-		}
-		targets.addAll(standTiles(npc.getWorldLocation()));
-		publish(PathFinder.find(grid, location, targets, transports), null, npc);
 	}
 
-	private void publish(List<PathFinder.Step> steps, WorldPoint bookcase, NPC npc)
+	/**
+	 * Customers to get the next request from. By default requests alternate between Villia and Professor Gracklebone,
+	 * since whoever was just served won't give the next one and Sam is out of the way.
+	 */
+	private List<Customer> taskGivers()
+	{
+		List<Customer> givers = new ArrayList<>();
+		givers.add(Customer.VILLIA);
+		givers.add(Customer.PROFESSOR_GRACKLEBONE);
+		if (config.includeSam())
+		{
+			givers.add(Customer.SAM);
+		}
+		givers.removeIf(c -> c.getNpcId() == lastServedCustomer);
+		return givers;
+	}
+
+	/**
+	 * Path to whichever of the customers is closest, walking to them if they're loaded or to their home spot if not.
+	 */
+	private void goToCustomer(WorldPoint location, List<Customer> customers)
+	{
+		List<PathFinder.Step> best = Collections.emptyList();
+		NPC bestNpc = null;
+		WorldPoint bestTile = null;
+		for (Customer customer : customers)
+		{
+			NPC npc = findNpc(customer.getNpcId());
+			WorldPoint tile = npc != null ? npc.getWorldLocation() : customer.getHome();
+			List<PathFinder.Step> steps = PathFinder.find(grid, location, standTiles(tile), transports);
+			if (!steps.isEmpty() && (best.isEmpty() || steps.size() < best.size()))
+			{
+				best = steps;
+				bestNpc = npc;
+				bestTile = tile;
+			}
+		}
+		publish(best, bestTile, bestNpc);
+	}
+
+	private NPC findNpc(int npcId)
+	{
+		for (NPC npc : client.getTopLevelWorldView().npcs())
+		{
+			if (npc.getId() == npcId)
+			{
+				return npc;
+			}
+		}
+		return null;
+	}
+
+	private void publish(List<PathFinder.Step> steps, WorldPoint tile, NPC npc)
 	{
 		path = steps;
-		targetBookcase = steps.isEmpty() ? null : bookcase;
+		targetTile = steps.isEmpty() ? null : tile;
 		targetNpc = steps.isEmpty() ? null : npc;
 	}
 
 	private void clearPath()
 	{
 		path = Collections.emptyList();
-		targetBookcase = null;
+		targetTile = null;
 		targetNpc = null;
 	}
 
@@ -396,35 +441,6 @@ public class LibraryPilotPlugin extends Plugin
 			}
 		}
 		return tiles;
-	}
-
-	private List<NPC> customers(int id, boolean only)
-	{
-		List<NPC> npcs = new ArrayList<>();
-		for (NPC npc : client.getTopLevelWorldView().npcs())
-		{
-			if (isLibraryCustomer(npc.getId()) && (only ? npc.getId() == id : npc.getId() != id))
-			{
-				npcs.add(npc);
-			}
-		}
-		return npcs;
-	}
-
-	private NPC nearest(List<NPC> npcs, WorldPoint from)
-	{
-		NPC best = null;
-		int bestLength = Integer.MAX_VALUE;
-		for (NPC npc : npcs)
-		{
-			List<PathFinder.Step> steps = PathFinder.find(grid, from, standTiles(npc.getWorldLocation()), transports);
-			if (!steps.isEmpty() && steps.size() < bestLength)
-			{
-				best = npc;
-				bestLength = steps.size();
-			}
-		}
-		return best;
 	}
 
 	private void trackBookFound()
@@ -599,6 +615,6 @@ public class LibraryPilotPlugin extends Plugin
 
 	static boolean isLibraryCustomer(int npcId)
 	{
-		return npcId == NpcID.ARCEUUS_LIBRARY_CUSTOMER_2 || npcId == NpcID.ARCEUUS_LIBRARY_CUSTOMER_3 || npcId == NpcID.ARCEUUS_LIBRARY_CUSTOMER_4;
+		return Customer.byId(npcId) != null;
 	}
 }

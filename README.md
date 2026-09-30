@@ -2,7 +2,8 @@
 
 Draws a line to where you need to go next in the Arceuus (Kourend) Library:
 
-- **Before a request:** to the nearest customer who can give you one. The customer you just served can't give the next request, so they're skipped.
+- **Before a request:** to Villia or Professor Gracklebone, alternating between them, since the customer you just served can't give the next request. Sam is only used if he gave you the current request, unless you turn on *Get requests from Sam*.
+- Customers that are too far away to be loaded (for example when you're upstairs) are pathed to at their usual spot.
 - **Book requested and you don't have it:** to the bookshelf that holds it. If the location isn't known yet, to the nearest shelf that could hold it.
 - **Holding the requested book:** back to the customer who asked for it.
 

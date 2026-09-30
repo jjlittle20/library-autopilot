@@ -69,4 +69,16 @@ public interface LibraryPilotConfig extends Config
 	{
 		return true;
 	}
+
+	@ConfigItem(
+		keyName = "includeSam",
+		name = "Get requests from Sam",
+		description = "Also go to Sam for new requests. Off by default: requests alternate between Villia and Professor Gracklebone,"
+			+ " and Sam is only visited when he gave you the current request",
+		position = 5
+	)
+	default boolean includeSam()
+	{
+		return false;
+	}
 }
