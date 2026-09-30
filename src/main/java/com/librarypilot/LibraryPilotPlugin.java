@@ -38,8 +38,10 @@ import net.runelite.api.events.StatChanged;
 import net.runelite.api.gameval.AnimationID;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.gameval.ItemID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.Skill;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
@@ -71,13 +73,15 @@ public class LibraryPilotPlugin extends Plugin
 	 */
 	private static final int REGRAB_DETOUR_MULTIPLIER = 3;
 	private static final String BOOKSHELF = "Bookshelf";
+	private static final int INVENTORY_SIZE = 28;
 
 	enum Task
 	{
 		GET_TASK("Get task"),
 		FIND_BOOK("Find book"),
 		SEARCH_SHELVES("Search shelves"),
-		RETURN_BOOK("Return book");
+		RETURN_BOOK("Return book"),
+		CLAIM_XP("Claim XP");
 
 		@Getter
 		private final String label;
@@ -98,6 +102,9 @@ public class LibraryPilotPlugin extends Plugin
 	private ConfigManager configManager;
 
 	@Inject
+	private ClientThread clientThread;
+
+	@Inject
 	private OverlayManager overlayManager;
 
 	@Inject
@@ -105,6 +112,9 @@ public class LibraryPilotPlugin extends Plugin
 
 	@Inject
 	private LibraryPilotInfoOverlay infoOverlay;
+
+	@Inject
+	private LibraryPilotItemOverlay itemOverlay;
 
 	private final Library library = new Library();
 
@@ -139,6 +149,12 @@ public class LibraryPilotPlugin extends Plugin
 	 */
 	@Getter(AccessLevel.PACKAGE)
 	private volatile NPC targetNpc;
+
+	/**
+	 * Whether the inventory is full and holds Books of Arcane Knowledge that should be read to make space.
+	 */
+	@Getter(AccessLevel.PACKAGE)
+	private volatile boolean claimXp;
 
 	/**
 	 * The bookshelf the path leads to, when it is loaded.
@@ -183,7 +199,15 @@ public class LibraryPilotPlugin extends Plugin
 		loadLearnedTransports();
 		overlayManager.add(overlay);
 		overlayManager.add(infoOverlay);
+		overlayManager.add(itemOverlay);
 		sceneDirty = true;
+		clientThread.invoke(() ->
+		{
+			if (client.getGameState() == GameState.LOGGED_IN)
+			{
+				updatePlayerBooks();
+			}
+		});
 	}
 
 	@Override
@@ -191,6 +215,8 @@ public class LibraryPilotPlugin extends Plugin
 	{
 		overlayManager.remove(overlay);
 		overlayManager.remove(infoOverlay);
+		overlayManager.remove(itemOverlay);
+		claimXp = false;
 		task = null;
 		library.reset();
 		regrabBook = null;
@@ -333,6 +359,11 @@ public class LibraryPilotPlugin extends Plugin
 		}
 
 		updatePath(location);
+		if (claimXp)
+		{
+			// A full inventory can't take any more books, so reading the reward books comes first
+			task = Task.CLAIM_XP;
+		}
 	}
 
 	private void updatePath(WorldPoint location)
@@ -726,10 +757,18 @@ public class LibraryPilotPlugin extends Plugin
 	{
 		ItemContainer inventory = client.getItemContainer(InventoryID.INV);
 		EnumSet<Book> books = EnumSet.noneOf(Book.class);
+		int used = 0;
+		boolean hasXpBook = false;
 		if (inventory != null)
 		{
 			for (Item item : inventory.getItems())
 			{
+				if (item.getId() <= 0)
+				{
+					continue;
+				}
+				used++;
+				hasXpBook |= item.getId() == ItemID.ARCEUUS_LIBRARY_REWARD;
 				Book book = Book.byId(item.getId());
 				if (book != null)
 				{
@@ -738,6 +777,7 @@ public class LibraryPilotPlugin extends Plugin
 			}
 		}
 		playerBooks = books;
+		claimXp = used >= INVENTORY_SIZE && hasXpBook;
 	}
 
 	/**

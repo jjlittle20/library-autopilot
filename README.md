@@ -9,7 +9,7 @@ Draws a line to where you need to go next in the Arceuus (Kourend) Library:
 
 Paths are worked out from the game's own collision data and cover all three floors. They take the stairs, or the railing shortcuts over the central hole when those are faster. The line is drawn on your current floor and ends on the next thing to click: a staircase, railing, bookshelf or customer.
 
-An info box shows the current step (*Get task*, *Find book*, *Search shelves* or *Return book*), with the book and customer.
+An info box shows the current step (*Get task*, *Find book*, *Search shelves* or *Return book*), with the book and customer. When your inventory is full, it switches to *Claim XP* and your Books of Arcane Knowledge are outlined so you can read them to make space.
 
 **Efficient mode** (off by default): picks up books you don't have yet when they're close to the route, so later requests are quicker. A book is only picked up if it adds at most *Max detour* tiles (default 6) to the trip. After a hand-in, it also goes back for another copy of that book (allowed three times the detour), since the same book is often requested again before the shelves reshuffle. With it off, the line goes straight to the requested book and back.
 
