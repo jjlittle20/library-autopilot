@@ -36,11 +36,15 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 tasks.register('run', JavaExec) {
-	classpath = sourceSets.test.runtimeClasspath
-	mainClass = pluginMainClass
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = pluginMainClass
 
-	jvmArgs "-ea"
-	args "--developer-mode", "--debug"
+    jvmArgs "-ea"
+    args "--developer-mode", "--debug"
+
+    if (project.hasProperty("dev")) {
+        systemProperty "librarypilot.dev", "true"
+    }
 }
 
 tasks.register('shadowJar', Jar) {
@@ -68,3 +72,4 @@ tasks.register('shadowJar', Jar) {
 	archiveClassifier.set('shadow')
 	archiveFileName.set("${rootProject.name}-${project.version}-all.jar")
 }
+
